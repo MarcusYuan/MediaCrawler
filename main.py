@@ -29,6 +29,12 @@ if sys.stderr and hasattr(sys.stderr, 'buffer'):
     if sys.stderr.encoding and sys.stderr.encoding.lower() != 'utf-8':
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
+# pyexecjs 在 import execjs 时一次性探测 PATH 并缓存结果，此调用必须先于
+# 任何会触发 import execjs 的模块（media_platform.douyin 等）执行
+from tools.node_runtime import ensure_embedded_node
+
+ensure_embedded_node()
+
 import asyncio
 from typing import Optional, Type
 

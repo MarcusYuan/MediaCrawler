@@ -39,6 +39,7 @@ from model.m_xiaohongshu import NoteUrlInfo, CreatorUrlInfo
 from proxy.proxy_ip_pool import IpInfoModel, create_ip_pool
 from store import xhs as xhs_store
 from tools import utils
+from tools.app_paths import get_writable_root, resolve_resource
 from tools.cdp_browser import CDPBrowserManager
 from var import crawler_type_var, source_keyword_var
 
@@ -98,7 +99,7 @@ class XiaoHongShuCrawler(AbstractCrawler):
                     headless=config.HEADLESS,
                 )
                 # stealth.min.js is a js script to prevent the website from detecting the crawler.
-                await self.browser_context.add_init_script(path="libs/stealth.min.js")
+                await self.browser_context.add_init_script(path=resolve_resource("libs/stealth.min.js"))
 
             self.context_page = await self.browser_context.new_page()
             await self.context_page.goto(self.index_url)
@@ -426,7 +427,7 @@ class XiaoHongShuCrawler(AbstractCrawler):
         if config.SAVE_LOGIN_STATE:
             # feat issue #14
             # we will save login state to avoid login every time
-            user_data_dir = os.path.join(os.getcwd(), "browser_data", config.USER_DATA_DIR % config.PLATFORM)  # type: ignore
+            user_data_dir = os.path.join(get_writable_root(), "browser_data", config.USER_DATA_DIR % config.PLATFORM)  # type: ignore
             browser_context = await chromium.launch_persistent_context(
                 user_data_dir=user_data_dir,
                 accept_downloads=True,

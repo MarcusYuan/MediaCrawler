@@ -22,6 +22,7 @@ from __future__ import annotations
 
 
 import sys
+import os
 import re
 from enum import Enum
 from types import SimpleNamespace
@@ -31,6 +32,7 @@ import typer
 from typing_extensions import Annotated
 
 import config
+from tools.app_paths import resolve_resource
 from tools.utils import str2bool
 
 
@@ -151,6 +153,26 @@ def _normalize_tieba_creator_url(value: str) -> str:
     return f"https://tieba.baidu.com/home/main?id={value}"
 
 
+APP_VERSION = "0.1.0+mc20260919"
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"mediacrawler {APP_VERSION}")
+        raise typer.Exit(0)
+
+
+def _license_callback(value: bool) -> None:
+    if value:
+        license_path = resolve_resource("LICENSE")
+        if os.path.exists(license_path):
+            with open(license_path, encoding="utf-8") as f:
+                typer.echo(f.read())
+        else:
+            typer.echo("LICENSE file not found.")
+        raise typer.Exit(0)
+
+
 async def parse_cmd(argv: Optional[Sequence[str]] = None):
     """Parse command line arguments using Typer."""
 
@@ -158,6 +180,26 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
 
     @app.callback(invoke_without_command=True)
     def main(
+        version: Annotated[
+            bool,
+            typer.Option(
+                "--version",
+                callback=_version_callback,
+                is_eager=True,
+                help="Show version and exit",
+                rich_help_panel="Basic Configuration",
+            ),
+        ] = False,
+        show_license: Annotated[
+            bool,
+            typer.Option(
+                "--license",
+                callback=_license_callback,
+                is_eager=True,
+                help="Show license and exit",
+                rich_help_panel="Basic Configuration",
+            ),
+        ] = False,
         platform: Annotated[
             PlatformEnum,
             typer.Option(

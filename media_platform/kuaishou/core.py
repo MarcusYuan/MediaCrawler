@@ -40,6 +40,7 @@ from model.m_kuaishou import VideoUrlInfo, CreatorUrlInfo
 from proxy.proxy_ip_pool import IpInfoModel, create_ip_pool
 from store import kuaishou as kuaishou_store
 from tools import utils
+from tools.app_paths import get_writable_root, resolve_resource
 from tools.cdp_browser import CDPBrowserManager
 from var import comment_tasks_var, crawler_type_var, source_keyword_var
 
@@ -97,7 +98,7 @@ class KuaishouCrawler(AbstractCrawler):
                     chromium, None, self.user_agent, headless=config.HEADLESS
                 )
                 # stealth.min.js is a js script to prevent the website from detecting the crawler.
-                await self.browser_context.add_init_script(path="libs/stealth.min.js")
+                await self.browser_context.add_init_script(path=resolve_resource("libs/stealth.min.js"))
 
 
             self.context_page = await self.browser_context.new_page()
@@ -398,7 +399,7 @@ class KuaishouCrawler(AbstractCrawler):
         )
         if config.SAVE_LOGIN_STATE:
             user_data_dir = os.path.join(
-                os.getcwd(), "browser_data", config.USER_DATA_DIR % config.PLATFORM
+                get_writable_root(), "browser_data", config.USER_DATA_DIR % config.PLATFORM
             )  # type: ignore
             browser_context = await chromium.launch_persistent_context(
                 user_data_dir=user_data_dir,

@@ -22,12 +22,14 @@
 # This class is responsible for obtaining some GraphQL schemas
 from typing import Dict
 
+from tools.app_paths import resolve_resource
+
 
 class KuaiShouGraphQL:
     graphql_queries: Dict[str, str]= {}
 
     def __init__(self):
-        self.graphql_dir = "media_platform/kuaishou/graphql/"
+        self.graphql_dir = resolve_resource("media_platform/kuaishou/graphql/")
         self.load_graphql_queries()
 
     def load_graphql_queries(self):

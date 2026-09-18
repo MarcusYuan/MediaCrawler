@@ -30,6 +30,8 @@ import cv2
 import httpx
 import numpy as np
 
+from tools.app_paths import get_writable_root
+
 
 class Slide:
     """
@@ -41,7 +43,7 @@ class Slide:
         :param gap: Gap image path or url
         :param bg: Background image with gap path or url
         """
-        self.img_dir = os.path.join(os.getcwd(), 'temp_image')
+        self.img_dir = os.path.join(get_writable_root(), 'temp_image')
         if not os.path.exists(self.img_dir):
             os.makedirs(self.img_dir)
 
@@ -68,7 +70,7 @@ class Slide:
             }
             img_res = httpx.get(img, headers=headers)
             if img_res.status_code == 200:
-                img_path = f'./temp_image/{img_type}.jpg'
+                img_path = os.path.join(get_writable_root(), 'temp_image', f'{img_type}.jpg')
                 image = np.asarray(bytearray(img_res.content), dtype="uint8")
                 image = cv2.imdecode(image, cv2.IMREAD_COLOR)
                 if resize:

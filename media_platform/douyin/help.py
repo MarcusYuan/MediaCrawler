@@ -33,8 +33,9 @@ from playwright.async_api import Page
 
 from model.m_douyin import VideoUrlInfo, CreatorUrlInfo
 from tools.crawler_util import extract_url_params_to_dict
+from tools.app_paths import resolve_resource
 
-douyin_sign_obj = execjs.compile(open('libs/douyin.js', encoding='utf-8-sig').read())
+douyin_sign_obj = execjs.compile(open(resolve_resource('libs/douyin.js'), encoding='utf-8-sig').read())
 
 def get_web_id():
     """

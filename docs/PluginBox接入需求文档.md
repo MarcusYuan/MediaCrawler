@@ -125,11 +125,24 @@
 
 ## 8. 验收标准
 
-1. [ ] `--version` stdout 为裸 semver、stderr 空、退出码 0（box-asr 式断言）
-2. [ ] `doctor --json` 无网络无费用可自动运行，正确区分环境故障与未登录
-3. [ ] 任一领域命令 `--json`：stdout 单 JSON 文档、日志全在 stderr、`ok` 与退出码一致、`result` 含输出路径与统计
-4. [ ] 无登录态时领域命令返回 `auth_required` 且非交互
-5. [ ] `login` 子命令可完成 xhs 扫码并持久化登录态；此后领域命令非交互可用
-6. [ ] 黑盒成功/失败样例可被确定性解析
-7. [ ] 源码模式（`python main.py`，不带新参数）行为与第一阶段完全一致
-8. [ ] 清单 v3 通过 schema 校验，permissions/data_policy 如实
+> 实施记录（2026-09-19，源码模式 + 159MB 二进制双双验证）：①②④⑥⑦ 已通过
+> （tests/test_box_contract.py 14 项 + 存量 317 项全绿；二进制上 --version 裸 semver/
+> stderr 零字节、doctor --json 含 embedded node、auth_required=exit4、invalid_input=exit2
+> 均复核）。③ 的成功路径与⑤ 需真实扫码登录后冒烟；⑧ 属第三阶段注册流程。
+
+1. [x] `--version` stdout 为裸 semver、stderr 空、退出码 0（box-asr 式断言）
+2. [x] `doctor --json` 无网络无费用可自动运行，正确区分环境故障与未登录
+3. [ ] 任一领域命令 `--json`：stdout 单 JSON 文档、日志全在 stderr、`ok` 与退出码一致、`result` 含输出路径与统计（失败路径已验，成功路径待登录冒烟）
+4. [x] 无登录态时领域命令返回 `auth_required` 且非交互
+5. [ ] `login` 子命令可完成 xhs 扫码并持久化登录态；此后领域命令非交互可用（待真人扫码冒烟）
+6. [x] 黑盒成功/失败样例可被确定性解析（测试即样例）
+7. [x] 源码模式（`python main.py`，不带新参数）行为与第一阶段完全一致
+8. [ ] 清单 v3 通过 schema 校验，permissions/data_policy 如实（第三阶段）
+
+### 实施要点备忘
+
+- `--json` 机器模式**忽略 `--lt`**（强制 cookie 语义：只消费已保存登录态），会话过期时
+  `SystemExit` 统一转 `auth_required`；机器模式同时强制自启动无头浏览器（不弹窗、不碰用户日常 Chrome）
+- `login` 子命令用 `CRAWLER_TYPE="login"` 哨兵值实现"只登录不爬取"，7 个平台 `core.py` 零改动
+- typer 0.27 自带 vendored click：参数异常须捕获 `typer._click.exceptions.ClickException`
+- 版本单一事实源：`tools/box_contract.py` 的 `APP_VERSION`，构建脚本从此读取

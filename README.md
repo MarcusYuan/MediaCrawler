@@ -103,6 +103,16 @@ brew install ccache                                  # macOS，可选但强烈�
 
 版本号单一事实源：`tools/box_contract.py` 的 `APP_VERSION`。
 
+## CI/CD 触发规则
+
+| 触发条件 | Workflow | 行为 |
+|---|---|---|
+| push 到 `main` / 提交 PR | `ci.yml` | 跑全量测试 + 构建命令校验（不出产物） |
+| 推送 `v*` 标签（如 `v0.2.0`） | `release.yml` | 四平台矩阵构建 → 冒烟测试 → sha256 → 自动创建 GitHub Release |
+| Actions 页面手动触发 | `release.yml` (dispatch) | 只构建不出 Release，用于测试流水线 |
+
+发版流程：修改 `APP_VERSION` → 提交合入 `main` → `git tag v<版本> && git push origin v<版本>` → 等待 Release 自动产出。
+
 ## 与上游的关系
 
 - 上游：[NanmiCoder/MediaCrawler](https://github.com/NanmiCoder/MediaCrawler)（爬虫全部能力来源，持续同步更新）

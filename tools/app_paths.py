@@ -39,10 +39,13 @@ def is_frozen() -> bool:
 
 
 def get_resource_root() -> str:
-    """只读资源根目录：源码模式为仓库根，打包模式为 onefile 解压目录。"""
-    if is_frozen():
-        return sys.modules["__main__"].__compiled__.containing_dir
-    # 源码模式：本文件位于 <repo>/tools/，上一级即仓库根
+    """只读资源根目录：源码模式为仓库根，打包模式为 onefile 解压目录。
+
+    Nuitka 编译模块的 __file__ 在运行时指向解压目录内的实际位置，
+    因此两种模式统一用本文件（<根>/tools/app_paths.py）上溯两级求根。
+    注意不能用 __compiled__.containing_dir——它指向可执行文件所在目录，
+    onefile 下那里并没有打包进去的资源。
+    """
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 

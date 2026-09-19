@@ -14,9 +14,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="${MC_VERSION:-0.1.0+mc$(date +%Y%m%d)}"
+# Nuitka 要求 --product-version 为纯数字点分（≤4 段、每段 ≤65535），
+# 缓存目录 {VERSION} 按发布版本隔离；带日期的展示版本见 cmd_arg.APP_VERSION
+VERSION_NUM="${MC_VERSION_NUM:-0.1.0}"
 PY="${MC_PYTHON:-python3}"
 
-echo "==> 版本: ${VERSION}"
+echo "==> 展示版本: ${VERSION} / Nuitka 版本: ${VERSION_NUM}"
 
 if ! "${PY}" -c "import nuitka" >/dev/null 2>&1; then
     echo "错误: 当前 Python 未安装 nuitka，先执行: ${PY} -m pip install nuitka" >&2
@@ -44,10 +47,12 @@ mkdir -p build
     --include-data-files=docs/hit_stopwords.txt=docs/hit_stopwords.txt \
     --include-data-files=docs/STZHONGS.TTF=docs/STZHONGS.TTF \
     --include-data-files=LICENSE=LICENSE \
+    --include-package-data=wordcloud \
+    --include-package-data=jieba \
     --onefile-tempdir-spec="{CACHE_DIR}/{PRODUCT}/{VERSION}" \
     --product-name=mediacrawler \
     --company-name=MarcusYuan \
-    --product-version="${VERSION}" \
+    --product-version="${VERSION_NUM}" \
     --output-filename=mediacrawler \
     --output-dir=build \
     --report=build/report.xml \

@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15 # Apple Silicon
+            target: macos-arm64
+          - os: macos-15-intel # Intel；若镜像不可用可改为 macos-13
+            target: macos-x64
+          - os: ubuntu-22.04 # 较老 glibc 基线，扩大 Linux 兼容面
+            target: linux-x64
+          - os: windows-2022
+            target: windows-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt nuitka
+
+      - name: Install ccache (non-Windows)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install ccache
+          else sudo apt-get update && sudo apt-get install -y ccache
+          fi
+
+      - name: Cache ccache
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/ccache
+            ~/.cache/ccache
+          key: ccache-${{ matrix.target }}-${{ github.sha }}
+          restore-keys: ccache-${{ matrix.target }}-
+
+      - name: Verify build command (dry-run)
+        run: python scripts/build.py --dry-run
+
+      - name: Build
+        run: python scripts/build.py
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -e
+          BIN=build/mediacrawler
+          if [ "$RUNNER_OS" = "Windows" ]; then BIN=build/mediacrawler.exe; fi
+          VERSION=$(python -c "import sys; sys.path.insert(0,'.'); from tools.box_contract import APP_VERSION; print(APP_VERSION)")
+          OUT=$("$BIN" --version)
+          echo "version output: $OUT"
+          if [ "$OUT" != "$VERSION" ]; then echo "version contract violated"; exit 1; fi
+          "$BIN" doctor --json > doctor.json
+          python -c "import json; d=json.load(open('doctor.json')); assert d['ok'] is True, d; print('doctor ok:', d['result']['version'])"
+
+      - name: Collect artifact and checksum
+        shell: bash
+        run: |
+          VERSION=$(python -c "import sys; sys.path.insert(0,'.'); from tools.box_contract import APP_VERSION; print(APP_VERSION)")
+          EXT=""
+          if [ "$RUNNER_OS" = "Windows" ]; then EXT=".exe"; fi
+          ART="mediacrawler-${VERSION}-${{ matrix.target }}${EXT}"
+          cp "build/mediacrawler${EXT}" "$ART"
+          if [ "$RUNNER_OS" = "macOS" ]; then shasum -a 256 "$ART" > "${ART}.sha256"
+          else sha256sum "$ART" > "${ART}.sha256"
+          fi
+          ls -lh "$ART"*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mediacrawler-${{ matrix.target }}
+          path: mediacrawler-*-${{ matrix.target }}*
+
+  release:
+    name: Create release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release create "$TAG" \
+            --title "mediacrawler ${TAG}" \
+            --generate-notes \
+            dist/*

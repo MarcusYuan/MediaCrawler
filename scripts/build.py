@@ -14,6 +14,11 @@ import os
 import subprocess
 import sys
 
+# Windows 控制台默认 charmap 编码，中文输出会 UnicodeEncodeError
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # macOS 部署目标：扩大兼容面（跟随构建机 SDK 会得到过高的系统要求）

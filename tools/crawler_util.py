@@ -25,6 +25,7 @@
 
 import base64
 import json
+import logging
 import random
 import re
 import urllib
@@ -59,7 +60,7 @@ async def find_login_qrcode(page: Page, selector: str) -> str:
         return login_qrcode_img
 
     except Exception as e:
-        print(e)
+        logging.getLogger("MediaCrawler").warning(e)
         return ""
 
 

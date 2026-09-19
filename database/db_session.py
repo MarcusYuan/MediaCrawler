@@ -16,6 +16,8 @@
 # 详细许可条款请参阅项目根目录下的LICENSE文件。
 # 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
 
+import logging
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
@@ -39,7 +41,7 @@ async def create_database_if_not_exists(db_type: str):
     elif db_type == "postgres":
         # Connect to the default 'postgres' database
         server_url = f"postgresql+asyncpg://{postgres_db_config['user']}:{postgres_db_config['password']}@{postgres_db_config['host']}:{postgres_db_config['port']}/postgres"
-        print(f"[init_db] Connecting to Postgres: host={postgres_db_config['host']}, port={postgres_db_config['port']}, user={postgres_db_config['user']}, dbname=postgres")
+        logging.getLogger("MediaCrawler").info(f"[init_db] Connecting to Postgres: host={postgres_db_config['host']}, port={postgres_db_config['port']}, user={postgres_db_config['user']}, dbname=postgres")
         # Isolation level AUTOCOMMIT is required for CREATE DATABASE
         engine = create_async_engine(server_url, echo=False, isolation_level="AUTOCOMMIT")
         async with engine.connect() as conn:

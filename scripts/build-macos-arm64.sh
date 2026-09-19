@@ -13,11 +13,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="${MC_VERSION:-0.1.0+mc$(date +%Y%m%d)}"
-# Nuitka 要求 --product-version 为纯数字点分（≤4 段、每段 ≤65535），
-# 缓存目录 {VERSION} 按发布版本隔离；带日期的展示版本见 cmd_arg.APP_VERSION
-VERSION_NUM="${MC_VERSION_NUM:-0.1.0}"
 PY="${MC_PYTHON:-python3}"
+# 版本单一事实源是 tools/box_contract.py 的 APP_VERSION；带日期的展示版本仅日志用
+VERSION_NUM="${MC_VERSION_NUM:-$("${PY}" -c 'from tools.box_contract import APP_VERSION; print(APP_VERSION)' 2>/dev/null || echo 0.1.0)}"
+VERSION="${MC_VERSION:-${VERSION_NUM}+mc$(date +%Y%m%d)}"
 
 echo "==> 展示版本: ${VERSION} / Nuitka 版本: ${VERSION_NUM}"
 

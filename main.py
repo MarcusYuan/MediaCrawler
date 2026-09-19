@@ -36,6 +36,8 @@ from tools.node_runtime import ensure_embedded_node
 ensure_embedded_node()
 
 import asyncio
+import os
+import time
 from typing import Optional, Type
 
 import cmd_arg
@@ -50,6 +52,7 @@ from media_platform.weibo import WeiboCrawler
 from media_platform.xhs import XiaoHongShuCrawler
 from media_platform.zhihu import ZhihuCrawler
 from tools.async_file_writer import AsyncFileWriter
+from tools import box_contract
 from var import crawler_type_var
 
 
@@ -84,9 +87,9 @@ def _flush_excel_if_needed() -> None:
         from store.excel_store_base import ExcelStoreBase
 
         ExcelStoreBase.flush_all()
-        print("[Main] Excel files saved successfully")
+        box_contract.emit_line("[Main] Excel files saved successfully")
     except Exception as e:
-        print(f"[Main] Error flushing Excel data: {e}")
+        box_contract.emit_line(f"[Main] Error flushing Excel data: {e}")
 
 
 async def _generate_wordcloud_if_needed() -> None:
@@ -100,16 +103,32 @@ async def _generate_wordcloud_if_needed() -> None:
         )
         await file_writer.generate_wordcloud_from_comments()
     except Exception as e:
-        print(f"[Main] Error generating wordcloud: {e}")
+        box_contract.emit_line(f"[Main] Error generating wordcloud: {e}")
 
 
 async def main() -> None:
     global crawler
 
     args = await cmd_arg.parse_cmd()
+
+    # 子命令（doctor/login）不走爬取路径
+    if isinstance(args, dict):
+        command = args.get("command")
+        if command == "doctor":
+            return  # doctor 已在子命令内完成检查与输出
+        if command == "login":
+            await _run_login(args)
+            return
+        raise box_contract.BoxCliError("invalid_input", f"Unknown command: {command}")
+
     if args.init_db:
         await db.init_db(args.init_db)
-        print(f"Database {args.init_db} initialized successfully.")
+        box_contract.emit_line(f"Database {args.init_db} initialized successfully.")
+        return
+
+    # 机器模式：stdout 只输出最终 envelope（见 _run_crawl_json）
+    if box_contract.MACHINE_MODE:
+        await _run_crawl_json()
         return
 
     # 数据库保存模式下自动建表，避免首次运行时出现 no such table 错误
@@ -126,6 +145,99 @@ async def main() -> None:
     await _generate_wordcloud_if_needed()
 
 
+async def _run_login(args: dict) -> None:
+    """login 子命令：有头 + CDP 自启动，登录态落 browser_data，只登录不爬取。"""
+    global crawler
+
+    if args["lt"] == "phone":
+        box_contract.fail_exit(
+            "invalid_input",
+            "phone login requires an external SMS receiver; use qrcode or cookie",
+        )
+
+    # 哨兵值：7 个平台的 start() 对未知 CRAWLER_TYPE 均不分发爬取，只完成会话准备与登录
+    config.CRAWLER_TYPE = "login"
+    config.ENABLE_CDP_MODE = True
+    config.CDP_CONNECT_EXISTING = False  # 登录态必须落本地 browser_data，不写用户日常 Chrome
+    config.SAVE_LOGIN_STATE = True
+    config.HEADLESS = False
+    config.CDP_HEADLESS = False
+
+    try:
+        crawler = CrawlerFactory.create_crawler(platform=config.PLATFORM)
+        await crawler.start()
+    except SystemExit:
+        # 各平台登录失败路径直接 sys.exit()；机器模式下统一转成 auth_required
+        if box_contract.MACHINE_MODE:
+            box_contract.fail_exit(
+                "auth_required", "login did not complete; scan the QR code in time and retry"
+            )
+        raise
+
+    # 正常收尾由 app_runner 的 async_cleanup 完成（优雅关浏览器，确保 cookie 落盘）
+    if box_contract.MACHINE_MODE:
+        profiles = [
+            os.path.abspath(p)
+            for p in box_contract.login_profile_paths(config.PLATFORM)
+            if os.path.isdir(os.path.join(p, "Default"))
+        ]
+        box_contract.output_envelope(
+            result={"platform": config.PLATFORM, "login_profiles": profiles}
+        )
+
+
+async def _run_crawl_json() -> None:
+    """机器模式爬取：stdout 仅一个最终 JSON envelope，日志全部在 stderr。"""
+    global crawler
+    started = time.monotonic()
+
+    # 机器模式只消费已保存登录态：忽略 --lt，会话过期时快速失败，绝不进入交互登录
+    config.LOGIN_TYPE = "cookie"
+    # 强制自启动浏览器（登录态以本地 browser_data 为准）且无头，不弹窗口
+    config.CDP_CONNECT_EXISTING = False
+    config.HEADLESS = True
+    config.CDP_HEADLESS = True
+    if not box_contract.has_login_profile(config.PLATFORM):
+        box_contract.fail_exit(
+            "auth_required",
+            f"no login profile for platform '{config.PLATFORM}'; "
+            f"run 'mediacrawler login --platform {config.PLATFORM}' first",
+        )
+
+    if config.SAVE_DATA_OPTION in ("sqlite", "mysql", "db", "postgres"):
+        await db.init_db(config.SAVE_DATA_OPTION)
+
+    snapshot = box_contract.snapshot_output_files(config.PLATFORM, config.CRAWLER_TYPE)
+    try:
+        crawler = CrawlerFactory.create_crawler(platform=config.PLATFORM)
+        await crawler.start()
+        _flush_excel_if_needed()
+        await _generate_wordcloud_if_needed()
+    except SystemExit:
+        # 平台代码在登录态失效等场景直接 sys.exit()；机器模式下转成可解析的失败
+        box_contract.fail_exit(
+            "auth_required",
+            "saved login state was rejected; re-run 'mediacrawler login'",
+            retryable=True,
+        )
+    except box_contract.BoxCliError as exc:
+        box_contract.fail_exit(exc.code, exc.message, exc.retryable)
+    except Exception as exc:  # 机器模式下不裸抛 traceback，统一转失败 envelope
+        box_contract.fail_exit("internal_error", f"{type(exc).__name__}: {exc}")
+
+    outputs = box_contract.collect_new_files(config.PLATFORM, config.CRAWLER_TYPE, snapshot)
+    box_contract.output_envelope(
+        result={
+            "platform": config.PLATFORM,
+            "crawler_type": config.CRAWLER_TYPE,
+            "keywords": config.KEYWORDS,
+            "outputs": outputs,
+            "total_items_added": sum(o["items_added"] for o in outputs),
+            "elapsed_seconds": round(time.monotonic() - started, 2),
+        }
+    )
+
+
 async def async_cleanup() -> None:
     global crawler
     if crawler:
@@ -135,7 +247,7 @@ async def async_cleanup() -> None:
             except Exception as e:
                 error_msg = str(e).lower()
                 if "closed" not in error_msg and "disconnected" not in error_msg:
-                    print(f"[Main] Error cleaning up CDP browser: {e}")
+                    box_contract.emit_line(f"[Main] Error cleaning up CDP browser: {e}")
 
         elif getattr(crawler, "browser_context", None):
             try:
@@ -143,7 +255,7 @@ async def async_cleanup() -> None:
             except Exception as e:
                 error_msg = str(e).lower()
                 if "closed" not in error_msg and "disconnected" not in error_msg:
-                    print(f"[Main] Error closing browser context: {e}")
+                    box_contract.emit_line(f"[Main] Error closing browser context: {e}")
 
     if config.SAVE_DATA_OPTION in ("db", "sqlite"):
         await db.close()

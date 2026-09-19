@@ -223,6 +223,28 @@ def has_login_profile(platform: str) -> bool:
     return False
 
 
+def existing_browser_reachable() -> bool:
+    """调试端口上是否已有可连的浏览器（如用户日常 Chrome 开着 9222）。
+
+    经验事实：小红书对新生 profile 的会话不跨浏览器重启生效（扫码/移植
+    的会话只在当次会话内有效），而用户日常 Chrome 的成熟会话稳定可用。
+    因此登录态来源优先级：已开浏览器 > 自建 profile。
+    """
+    import socket
+
+    try:
+        import config
+
+        port = int(config.CDP_DEBUG_PORT)
+    except (ImportError, AttributeError, ValueError):
+        port = 9222
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=2):
+            return True
+    except OSError:
+        return False
+
+
 def run_doctor_checks() -> dict:
     """自动可执行的健康检查：无业务副作用、零费用、零网络。"""
     chrome_path = _detect_browser()
@@ -241,6 +263,7 @@ def run_doctor_checks() -> dict:
         "chrome": {"found": chrome_path is not None, "path": chrome_path},
         "node": {"available": node_available, "source": node_source},
         "data_dir": {"path": data_dir, "writable": _is_writable(os.path.dirname(data_dir))},
+        "existing_browser": {"reachable": existing_browser_reachable()},
         "platforms": platforms,
     }
 

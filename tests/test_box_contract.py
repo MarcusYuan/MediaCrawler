@@ -168,8 +168,16 @@ class TestBlackboxContract:
         assert doc["ok"] is False
         assert doc["error"]["code"] == "invalid_input"
 
-    def test_json_crawl_without_login_profile_is_auth_required(self):
-        # 源码模式可写根 = cwd：在空目录里跑子进程，隔离真实 browser_data
+    def test_json_crawl_without_any_login_state_is_auth_required(self):
+        # 新语义：登录态来源 = 已开调试口浏览器 或 自建 profile，两者皆无才 auth_required。
+        # 本机若恰有调试浏览器在线（9222），子进程会真实连上，此用例无法隔离 → 跳过。
+        import socket
+
+        try:
+            with socket.create_connection(("127.0.0.1", 9222), timeout=1):
+                pytest.skip("local debug browser on 9222 makes isolation impossible")
+        except OSError:
+            pass
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -180,4 +188,22 @@ class TestBlackboxContract:
         assert proc.returncode == box_contract.EXIT_CODES["auth_required"]
         doc = json.loads(proc.stdout)
         assert doc["error"]["code"] == "auth_required"
-        assert "login --platform xhs" in doc["error"]["message"]
+
+    def test_existing_browser_reachable_detects_port(self, monkeypatch):
+        import socket
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        monkeypatch.setattr(socket, "create_connection", lambda *a, **kw: FakeConn())
+        assert box_contract.existing_browser_reachable() is True
+
+        def refused(*a, **kw):
+            raise OSError("refused")
+
+        monkeypatch.setattr(socket, "create_connection", refused)
+        assert box_contract.existing_browser_reachable() is False

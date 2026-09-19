@@ -179,13 +179,18 @@ async def _run_login(args: dict) -> None:
     # 登录完成以"平台 API 接受会话"为准：扫码成功只代表拿到 cookie，
     # 全新设备指纹可能还差滑块/验证激活。轮询期间浏览器窗口保持打开，
     # 如窗口中出现滑块验证，请当场完成。
-    client = next(
-        (getattr(crawler, attr) for attr in dir(crawler) if attr.endswith("_client")),
-        None,
-    )
+    # 注意不能按 "attr.endswith('_client')" 直接取第一个：create_xxx_client
+    # 这类构造方法也会命中且按字母序更靠前，必须校验 pong 可调用。
+    client = None
+    for attr in dir(crawler):
+        value = getattr(crawler, attr, None)
+        if attr.endswith("_client") and hasattr(value, "pong"):
+            client = value
+            break
     api_verified = False
-    if client is not None and hasattr(client, "pong"):
-        for _ in range(30):  # 最多约 90 秒
+    if client is not None:
+        box_contract.emit_line("Waiting for the platform API to accept the session (up to 90s)...")
+        for _ in range(30):
             api_verified = await client.pong()
             if api_verified:
                 break
@@ -220,17 +225,20 @@ async def _run_crawl_json() -> None:
     global crawler
     started = time.monotonic()
 
-    # 机器模式只消费已保存登录态：忽略 --lt，会话过期时快速失败，绝不进入交互登录
+    # 机器模式只消费已有登录态：忽略 --lt，绝不进入交互登录。
+    # 登录态来源优先级：已开的调试口浏览器（成熟会话，稳定）> 自建 profile
+    # （注：小红书对新生 profile 的会话不跨浏览器重启生效，自建 profile 仅在
+    # 登录当次会话可靠，故不强制 CDP_CONNECT_EXISTING=False，保持上游默认）
     config.LOGIN_TYPE = "cookie"
-    # 强制自启动浏览器，登录态以本地 browser_data 为准。
-    # 注意不强制 headless：xhs 等平台无头模式易被风控识别（上游配置注释有警示），
-    # box 合同要求的是"非交互"而非"无头"；自启动的是独立实例，不影响用户日常 Chrome。
-    config.CDP_CONNECT_EXISTING = False
-    if not box_contract.has_login_profile(config.PLATFORM):
+    if not (
+        box_contract.existing_browser_reachable()
+        or box_contract.has_login_profile(config.PLATFORM)
+    ):
         box_contract.fail_exit(
             "auth_required",
-            f"no login profile for platform '{config.PLATFORM}'; "
-            f"run 'mediacrawler login --platform {config.PLATFORM}' first",
+            f"no usable login state for platform '{config.PLATFORM}'; start Chrome with "
+            f"--remote-debugging-port=9222 (logged in), or run "
+            f"'mediacrawler login --platform {config.PLATFORM}'",
         )
 
     if config.SAVE_DATA_OPTION in ("sqlite", "mysql", "db", "postgres"):

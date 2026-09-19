@@ -151,12 +151,45 @@ strategy:
 
 ## 5. 建议实施顺序
 
+> 本节为初期规划，实际实施记录见第 7 节"构建记录"。
+
 1. **P1 + P2 适配代码**（`tools/app_paths.py`、`tools/node_runtime.py` + 十来处路径替换）——与封装工具无关，先做且必须做
 2. **本机原型构建**（macOS arm64）：解决 V1~V6，量出体积与启动数据
 3. **CI 矩阵**：四平台产物 + ccache 缓存
 4. **P3/P4**（配置外置、数据目录）：产品形态完善，不阻塞"能不能封装出来"，可在 2、3 之后做
 
-## 6. 参考资料
+## 7. 构建记录（2026-09-19，macOS arm64 原型）
+
+### 产物与测量
+
+| 指标 | 数值 |
+|------|------|
+| 单文件体积 | **158MB**（远优于 NFR1 的 400MB 目标） |
+| 首次冷启动（含全量解压） | **101 秒** |
+| 二次启动（缓存复用） | **2.4~2.5 秒**（缓存生效，约 40 倍提升） |
+| 解压缓存目录 | `~/.cache/mediacrawler/0.1.0/`（按 {PRODUCT}/{VERSION} 隔离） |
+| 构建耗时 | 首次约 25 分钟；ccache 热后重构建约 13 分钟 |
+| 运行基线 | macOS 26.0+（跟随构建机 SDK，未来分发需注意老系统兼容） |
+
+### 验证结论
+
+- ✅ V1 依赖兼容：30+ 依赖（opencv/pandas/matplotlib/xhshow…）Python 层与 C 层全部编译通过
+- ✅ V3 CLI 完整性：二进制 `--help` 与源码模式输出逐行一致（仅程序名不同）
+- ✅ 内嵌 node：`playwright/driver/node`（116MB）随包分发且保留执行位；剥离系统 PATH（`env PATH=/usr/bin:/bin`，两目录均无 node）后启动成功，证明 execjs 探测命中内嵌 node
+- ✅ 资源路径：`libs/*.js`、`docs/` 词云资源、快手 graphql 均在解压目录正确落位并可从任意 CWD 运行
+- ⏳ V2 完整链路（dy 真实签名调用）、V6（CDP 连本机 Chrome 爬取）：待用户协助的真人扫码冒烟
+
+### 实施中推翻/修正的三个假设
+
+1. **`__compiled__.containing_dir` 不可用于寻资源根**：它指向可执行文件所在目录（如 `build/`），onefile 下资源实际在解压目录。正确做法：编译模块 `__file__` 上溯（`tools/app_paths.py` 已统一两种模式）
+2. **`wordcloud`/`jieba` 的包内数据默认不收录**：`stopwords` 在 import 时读、`dict.txt` 在分词时读，必须 `--include-package-data=wordcloud --include-package-data=jieba`（matplotlib 的 mpl-data 由 Nuitka 包配置自动处理）
+3. **`--product-version` 格式受限**：必须 ≤4 段纯数字、每段 ≤65535，PEP 440 的 `0.1.0+mc20260919` 直接 FATAL；构建脚本已拆分"展示版本"与"Nuitka 数字版本"
+
+### 触碰文件清单（与上游同步时重点 review）
+
+`main.py`、`cmd_arg/arg.py`、`config/db_config.py`、`tools/{app_paths,node_runtime,async_file_writer,cdp_browser,slider_util,words}.py`、`store/excel_store_base.py`、`media_downloader/downloader.py`、`media_platform/*/core.py`（7 个）、`media_platform/{douyin,zhihu}/help.py`、`media_platform/kuaishou/graphql.py`；新增 `scripts/build-macos-arm64.sh`
+
+## 8. 参考资料
 
 - [Nuitka Playwright 标准插件（源码）](https://fossies.org)（`nuitka/plugins/standard/PlaywrightPlugin.py`）
 - [Nuitka onefile 缓存机制与 --onefile-tempdir-spec（DeepWiki）](https://deepwiki.com/search/how-does-nuitkas-onefile-mode_d54461a8-e436...)（含 `{CACHE_DIR}` 等变量表与 cache-mode 语义）

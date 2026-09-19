@@ -177,7 +177,8 @@ strategy:
 - ✅ V3 CLI 完整性：二进制 `--help` 与源码模式输出逐行一致（仅程序名不同）
 - ✅ 内嵌 node：`playwright/driver/node`（116MB）随包分发且保留执行位；剥离系统 PATH（`env PATH=/usr/bin:/bin`，两目录均无 node）后启动成功，证明 execjs 探测命中内嵌 node
 - ✅ 资源路径：`libs/*.js`、`docs/` 词云资源、快手 graphql 均在解压目录正确落位并可从任意 CWD 运行
-- ⏳ V2 完整链路（dy 真实签名调用）、V6（CDP 连本机 Chrome 爬取）：待用户协助的真人扫码冒烟
+- ✅ V6 真实爬取：二进制通过 CDP 连接本机 Chrome（命中已开启调试端口的现有浏览器，复用其登录态），小红书关键词搜索爬取 20 条笔记、19 字段、昵称正常脱敏，jsonl 落盘 `~/.mediacrawler/data/xhs/jsonl/`，无数据泄漏到 CWD，退出码 0 且清理逻辑未误杀用户浏览器
+- ⏳ V2 完整链路（dy 真实签名调用）：内嵌 node 探测已验证，真实签名调用待后续 dy 冒烟
 
 ### 实施中推翻/修正的三个假设
 

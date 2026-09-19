@@ -101,11 +101,12 @@ def output_envelope(result=None, error: "BoxCliError | tuple | None" = None) -> 
 
 
 def fail_exit(code: str, message: str, retryable: bool = False) -> None:
-    """机器模式下输出失败 envelope 并以对应退出码结束进程；人类模式原样抛出。"""
+    """输出失败信息并以稳定退出码结束进程；机器模式附带失败 envelope。"""
     if MACHINE_MODE:
         output_envelope(error=(code, message, retryable))
         raise SystemExit(EXIT_CODES.get(code, 1))
-    raise BoxCliError(code, message, retryable)
+    print(f"error[{code}]: {message}", file=sys.stderr)
+    raise SystemExit(EXIT_CODES.get(code, 1))
 
 
 # ---------------------------------------------------------------------------

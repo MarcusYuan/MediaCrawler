@@ -166,13 +166,38 @@ async def _run_login(args: dict) -> None:
     try:
         crawler = CrawlerFactory.create_crawler(platform=config.PLATFORM)
         await crawler.start()
-    except SystemExit:
-        # 各平台登录失败路径直接 sys.exit()；机器模式下统一转成 auth_required
-        if box_contract.MACHINE_MODE:
-            box_contract.fail_exit(
-                "auth_required", "login did not complete; scan the QR code in time and retry"
-            )
-        raise
+    except SystemExit as exc:
+        # 各平台登录失败路径直接 sys.exit()（不带参数时退出码为 0，会被误读为成功），
+        # 这里统一转成明确的 auth_required 失败
+        box_contract.fail_exit(
+            "auth_required",
+            "login did not complete; scan the QR code in time and retry",
+            retryable=True,
+        )
+        raise exc  # pragma: no cover - fail_exit 必然抛出，此行仅为类型完整
+
+    # 登录完成以"平台 API 接受会话"为准：扫码成功只代表拿到 cookie，
+    # 全新设备指纹可能还差滑块/验证激活。轮询期间浏览器窗口保持打开，
+    # 如窗口中出现滑块验证，请当场完成。
+    client = next(
+        (getattr(crawler, attr) for attr in dir(crawler) if attr.endswith("_client")),
+        None,
+    )
+    api_verified = False
+    if client is not None and hasattr(client, "pong"):
+        for _ in range(30):  # 最多约 90 秒
+            api_verified = await client.pong()
+            if api_verified:
+                break
+            await asyncio.sleep(3)
+
+    if not api_verified:
+        box_contract.fail_exit(
+            "auth_required",
+            "login cookies saved but the platform API has not accepted this session; "
+            "re-run login and complete any verification shown in the browser window",
+            retryable=True,
+        )
 
     # 正常收尾由 app_runner 的 async_cleanup 完成（优雅关浏览器，确保 cookie 落盘）
     if box_contract.MACHINE_MODE:
@@ -182,7 +207,11 @@ async def _run_login(args: dict) -> None:
             if os.path.isdir(os.path.join(p, "Default"))
         ]
         box_contract.output_envelope(
-            result={"platform": config.PLATFORM, "login_profiles": profiles}
+            result={
+                "platform": config.PLATFORM,
+                "login_profiles": profiles,
+                "api_verified": api_verified,
+            }
         )
 
 
@@ -193,10 +222,10 @@ async def _run_crawl_json() -> None:
 
     # 机器模式只消费已保存登录态：忽略 --lt，会话过期时快速失败，绝不进入交互登录
     config.LOGIN_TYPE = "cookie"
-    # 强制自启动浏览器（登录态以本地 browser_data 为准）且无头，不弹窗口
+    # 强制自启动浏览器，登录态以本地 browser_data 为准。
+    # 注意不强制 headless：xhs 等平台无头模式易被风控识别（上游配置注释有警示），
+    # box 合同要求的是"非交互"而非"无头"；自启动的是独立实例，不影响用户日常 Chrome。
     config.CDP_CONNECT_EXISTING = False
-    config.HEADLESS = True
-    config.CDP_HEADLESS = True
     if not box_contract.has_login_profile(config.PLATFORM):
         box_contract.fail_exit(
             "auth_required",
@@ -223,6 +252,14 @@ async def _run_crawl_json() -> None:
     except box_contract.BoxCliError as exc:
         box_contract.fail_exit(exc.code, exc.message, exc.retryable)
     except Exception as exc:  # 机器模式下不裸抛 traceback，统一转失败 envelope
+        if type(exc).__name__ == "RetryError":
+            # pong 失败→空 cookie 空转登录→请求被拒的典型链条：会话未被平台接受
+            box_contract.fail_exit(
+                "auth_required",
+                "requests rejected after retries; saved session may have expired, "
+                "re-run 'mediacrawler login'",
+                retryable=True,
+            )
         box_contract.fail_exit("internal_error", f"{type(exc).__name__}: {exc}")
 
     outputs = box_contract.collect_new_files(config.PLATFORM, config.CRAWLER_TYPE, snapshot)

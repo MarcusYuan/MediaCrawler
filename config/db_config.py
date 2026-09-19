@@ -20,6 +20,8 @@
 
 import os
 
+from tools.app_paths import get_writable_root, is_frozen
+
 # mysql config
 MYSQL_DB_PWD = os.getenv("MYSQL_DB_PWD", "123456")
 MYSQL_DB_USER = os.getenv("MYSQL_DB_USER", "root")
@@ -47,7 +49,11 @@ CACHE_TYPE_REDIS = "redis"
 CACHE_TYPE_MEMORY = "memory"
 
 # sqlite config
-SQLITE_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "database", "sqlite_tables.db")
+if is_frozen():
+    # 打包模式下原写法会指向 onefile 解压目录（随版本变化、可能被清理），数据会丢失
+    SQLITE_DB_PATH = os.path.join(get_writable_root(), "database", "sqlite_tables.db")
+else:
+    SQLITE_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "database", "sqlite_tables.db")
 
 sqlite_db_config = {
     "db_path": SQLITE_DB_PATH

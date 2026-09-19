@@ -30,6 +30,7 @@ from playwright.async_api import Browser, BrowserContext, Playwright
 import config
 from tools.browser_launcher import BrowserLauncher
 from tools import utils
+from tools.app_paths import get_writable_root, resolve_resource
 
 
 class CDPBrowserManager:
@@ -255,7 +256,7 @@ class CDPBrowserManager:
         user_data_dir = None
         if config.SAVE_LOGIN_STATE:
             user_data_dir = os.path.join(
-                os.getcwd(),
+                get_writable_root(),
                 "browser_data",
                 f"cdp_{config.USER_DATA_DIR % config.PLATFORM}",
             )
@@ -397,10 +398,11 @@ class CDPBrowserManager:
 
         return browser_context
 
-    async def add_stealth_script(self, script_path: str = "libs/stealth.min.js"):
+    async def add_stealth_script(self, script_path: str = None):
         """
         Add anti-detection script
         """
+        script_path = resolve_resource(script_path or "libs/stealth.min.js")
         if self.browser_context and os.path.exists(script_path):
             try:
                 await self.browser_context.add_init_script(path=script_path)

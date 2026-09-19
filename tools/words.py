@@ -30,13 +30,14 @@ from wordcloud import WordCloud
 
 import config
 from tools import utils
+from tools.app_paths import resolve_resource
 
 plot_lock = asyncio.Lock()
 
 class AsyncWordCloudGenerator:
     def __init__(self):
         logging.getLogger('jieba').setLevel(logging.WARNING)
-        self.stop_words_file = config.STOP_WORDS_FILE
+        self.stop_words_file = resolve_resource(config.STOP_WORDS_FILE)
         self.lock = asyncio.Lock()
         self.stop_words = self.load_stop_words()
         self.custom_words = config.CUSTOM_WORDS
@@ -69,7 +70,7 @@ class AsyncWordCloudGenerator:
         top_20_word_freq = {word: freq for word, freq in
                             sorted(word_freq.items(), key=lambda item: item[1], reverse=True)[:20]}
         wordcloud = WordCloud(
-            font_path=config.FONT_PATH,
+            font_path=resolve_resource(config.FONT_PATH),
             width=800,
             height=400,
             background_color='white',

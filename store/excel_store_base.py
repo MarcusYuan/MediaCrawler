@@ -46,6 +46,7 @@ except ImportError:
 
 from base.base_crawler import AbstractStore
 from tools import utils
+from tools.app_paths import get_writable_root
 import config
 
 
@@ -115,7 +116,7 @@ class ExcelStoreBase(AbstractStore):
         if config.SAVE_DATA_PATH:
             self.data_dir = Path(config.SAVE_DATA_PATH) / platform
         else:
-            self.data_dir = Path("data") / platform
+            self.data_dir = Path(get_writable_root()) / "data" / platform
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize workbook

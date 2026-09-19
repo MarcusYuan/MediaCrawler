@@ -47,6 +47,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from tools.httpx_util import make_async_client
+from tools.app_paths import get_writable_root
 
 from .ffmpeg import merge_audio_video
 from .paths import (
@@ -157,7 +158,8 @@ class MediaDownloader:
         if self._base_dir is None:
             import config
 
-            self._base_dir = Path(getattr(config, "SAVE_DATA_PATH", "") or "data")
+            save_path = getattr(config, "SAVE_DATA_PATH", "") or os.path.join(get_writable_root(), "data")
+            self._base_dir = Path(save_path)
         return self._base_dir
 
     async def download_all(self, items: Sequence[MediaItem]) -> list[Path]:

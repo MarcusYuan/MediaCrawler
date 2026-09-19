@@ -807,7 +807,7 @@ class TieBaExtractor:
             unescaped_json_str = html.unescape(data_field_value)
             data_field_dict_value = json.loads(unescaped_json_str)
         except Exception as ex:
-            print(f"extract_data_field_value, error: {ex}, trying alternative parsing method")
+            utils.logger.warning(f"extract_data_field_value, error: {ex}, trying alternative parsing method")
             data_field_dict_value = {}
         return data_field_dict_value
 

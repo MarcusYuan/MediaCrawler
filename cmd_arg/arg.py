@@ -22,6 +22,7 @@ from __future__ import annotations
 
 
 import sys
+import os
 import re
 from enum import Enum
 from types import SimpleNamespace
@@ -30,7 +31,14 @@ from typing import Iterable, Optional, Sequence, Type, TypeVar
 import typer
 from typing_extensions import Annotated
 
+try:  # typer 0.27+ 自带 vendored click，旧版 typer 复用系统 click
+    from typer._click.exceptions import ClickException as TyperClickException
+except ImportError:  # pragma: no cover - 旧版 typer 复用系统 click
+    from click.exceptions import ClickException as TyperClickException
+
 import config
+from tools import box_contract
+from tools.app_paths import resolve_resource
 from tools.utils import str2bool
 
 
@@ -108,6 +116,7 @@ def _coerce_enum(
         typer.secho(
             f"⚠️ Config value '{value}' is not within the supported range of {enum_cls.__name__}, falling back to default value '{default.value}'.",
             fg=typer.colors.YELLOW,
+            err=True,
         )
         return default
 
@@ -151,6 +160,36 @@ def _normalize_tieba_creator_url(value: str) -> str:
     return f"https://tieba.baidu.com/home/main?id={value}"
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        # Box 合同：stdout 必须精确等于裸 semver，stderr 为空
+        typer.echo(box_contract.APP_VERSION)
+        raise typer.Exit(0)
+
+
+def _license_callback(value: bool) -> None:
+    if value:
+        license_path = resolve_resource("LICENSE")
+        if os.path.exists(license_path):
+            with open(license_path, encoding="utf-8") as f:
+                typer.echo(f.read())
+        else:
+            typer.echo("LICENSE file not found.")
+        raise typer.Exit(0)
+
+
+def _print_doctor_summary(result: dict) -> None:
+    print(f"mediacrawler doctor (version {result['version']})")
+    chrome = result["chrome"]
+    print(f"  chrome:         {'OK: ' + chrome['path'] if chrome['found'] else 'NOT FOUND'}")
+    node = result["node"]
+    print(f"  node:           {'OK (' + node['source'] + ')' if node['available'] else 'NOT FOUND'}")
+    data_dir = result["data_dir"]
+    print(f"  data dir:       {'writable: ' + data_dir['path'] if data_dir['writable'] else 'NOT writable'}")
+    logged_in = [p for p, v in result["platforms"].items() if v.get("login_profile")]
+    print(f"  login profiles: {', '.join(logged_in) if logged_in else '(none)'}")
+
+
 async def parse_cmd(argv: Optional[Sequence[str]] = None):
     """Parse command line arguments using Typer."""
 
@@ -158,6 +197,34 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
 
     @app.callback(invoke_without_command=True)
     def main(
+        version: Annotated[
+            bool,
+            typer.Option(
+                "--version",
+                callback=_version_callback,
+                is_eager=True,
+                help="Show version and exit",
+                rich_help_panel="Basic Configuration",
+            ),
+        ] = False,
+        show_license: Annotated[
+            bool,
+            typer.Option(
+                "--license",
+                callback=_license_callback,
+                is_eager=True,
+                help="Show license and exit",
+                rich_help_panel="Basic Configuration",
+            ),
+        ] = False,
+        output_json: Annotated[
+            bool,
+            typer.Option(
+                "--json",
+                help="Machine-readable mode: single JSON envelope on stdout, all logs on stderr",
+                rich_help_panel="Runtime Configuration",
+            ),
+        ] = False,
         platform: Annotated[
             PlatformEnum,
             typer.Option(
@@ -344,6 +411,9 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
     ) -> SimpleNamespace:
         """MediaCrawler 命令行入口"""
 
+        if output_json:
+            box_contract.set_machine_mode(True)
+
         enable_comment = _to_bool(get_comment)
         enable_sub_comment = _to_bool(get_sub_comment)
         enable_media = _to_bool(get_media)
@@ -429,6 +499,58 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
             creator_id=creator_id,
         )
 
+    @app.command(name="doctor")
+    def doctor(
+        json_output: Annotated[
+            bool,
+            typer.Option("--json", help="Output a single JSON envelope on stdout"),
+        ] = False,
+    ) -> dict:
+        """Run zero-cost health checks (browser / login profiles / data dir / node)."""
+
+        if json_output:
+            box_contract.set_machine_mode(True)
+        result = box_contract.run_doctor_checks()
+        if box_contract.MACHINE_MODE:
+            box_contract.output_envelope(result=result)
+        else:
+            _print_doctor_summary(result)
+        return {"command": "doctor"}
+
+    @app.command(name="login")
+    def login(
+        platform: Annotated[
+            PlatformEnum,
+            typer.Option("--platform", help="Platform to log in to"),
+        ],
+        lt: Annotated[
+            LoginTypeEnum,
+            typer.Option("--lt", help="Login type (qrcode | cookie)"),
+        ] = LoginTypeEnum.QRCODE,
+        cookies: Annotated[
+            str,
+            typer.Option("--cookies", help="Cookie string used for cookie login"),
+        ] = "",
+        json_output: Annotated[
+            bool,
+            typer.Option("--json", help="Output a single JSON envelope on stdout"),
+        ] = False,
+    ) -> dict:
+        """Interactive login once; persists the browser profile under browser_data."""
+
+        if json_output:
+            box_contract.set_machine_mode(True)
+        # callback 已先用默认值回写 config.*，这里以子命令参数为准再覆盖一次
+        config.PLATFORM = platform.value
+        config.LOGIN_TYPE = lt.value
+        if cookies:
+            config.COOKIES = cookies
+        return {
+            "command": "login",
+            "platform": platform.value,
+            "lt": lt.value,
+        }
+
     command = typer.main.get_command(app)
 
     cli_args = _normalize_argv(argv)
@@ -441,3 +563,12 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
         return result
     except typer.Exit as exc:  # pragma: no cover - CLI exit paths
         raise SystemExit(exc.exit_code) from exc
+    except TyperClickException as exc:
+        # 机器模式下参数/用法错误也必须输出可解析的失败 envelope
+        if box_contract.MACHINE_MODE or "--json" in cli_args:
+            box_contract.set_machine_mode(True)
+            box_contract.output_envelope(
+                error=("invalid_input", exc.format_message(), False)
+            )
+            raise SystemExit(box_contract.EXIT_CODES["invalid_input"]) from exc
+        raise
